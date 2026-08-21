@@ -49,6 +49,7 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   // Setup pose and path publisher
   pub_poseimu = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("poseimu", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_poseimu->get_topic_name());
+#ifdef OV_JOINT_COV_AVAILABLE
   pub_joint_cov = node->create_publisher<active_slam_msgs::msg::JointCovariance>("/openvins/joint_covariance", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_joint_cov->get_topic_name());
   node->declare_parameter<bool>("joint_cov_enabled", joint_cov_enabled);
@@ -59,6 +60,10 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   node->get_parameter<bool>("joint_cov_include_features", joint_cov_include_features);
   node->declare_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
   node->get_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
+
+#else
+  PRINT_WARNING(YELLOW "joint covariance publisher NOT compiled in (active_slam_msgs was absent at build time)\n" RESET);
+#endif
 
   pub_odomimu = node->create_publisher<nav_msgs::msg::Odometry>("odomimu", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_odomimu->get_topic_name());
@@ -259,8 +264,10 @@ void ROS2Visualizer::visualize() {
   // publish state
   publish_state();
 
-  // publish joint covariance for the active-SLAM planner
+  // publish joint covariance for the active-SLAM planner (optional feature)
+#ifdef OV_JOINT_COV_AVAILABLE
   publish_joint_covariance();
+#endif
 
   // publish points
   publish_features();
@@ -1015,6 +1022,8 @@ void ROS2Visualizer::publish_loopclosure_information() {
 }
 
 
+#ifdef OV_JOINT_COV_AVAILABLE
+
 void ROS2Visualizer::publish_joint_covariance() {
 
   // ==========================================================================
@@ -1169,3 +1178,5 @@ void ROS2Visualizer::publish_joint_covariance() {
 
   pub_joint_cov->publish(msg);
 }
+
+#endif // OV_JOINT_COV_AVAILABLE

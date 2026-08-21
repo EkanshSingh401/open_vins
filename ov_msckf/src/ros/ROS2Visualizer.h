@@ -29,7 +29,9 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/time_synchronizer.h>
+#ifdef OV_JOINT_COV_AVAILABLE
 #include <active_slam_msgs/msg/joint_covariance.hpp>
+#endif
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -161,7 +163,9 @@ protected:
   std::shared_ptr<tf2_ros::TransformBroadcaster> mTfBr;
 
   // Joint covariance export (see publish_joint_covariance)
+#ifdef OV_JOINT_COV_AVAILABLE
   rclcpp::Publisher<active_slam_msgs::msg::JointCovariance>::SharedPtr pub_joint_cov;
+#endif
   bool joint_cov_enabled = true;
   bool joint_cov_include_features = true;
   bool joint_cov_include_calib = true;
