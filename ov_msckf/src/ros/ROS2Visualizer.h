@@ -29,6 +29,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/time_synchronizer.h>
+#include <active_slam_msgs/msg/joint_covariance.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -135,6 +136,10 @@ protected:
   /// Publish loop-closure information of current pose and active track information
   void publish_loopclosure_information();
 
+  /// Publish the JOINT state covariance (IMU + clones + SLAM features, with
+  /// cross-covariance) for Fisher-information-based planning.
+  void publish_joint_covariance();
+
   /// Global node handler
   std::shared_ptr<rclcpp::Node> _node;
 
@@ -154,6 +159,14 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr pub_loop_point;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_loop_intrinsics;
   std::shared_ptr<tf2_ros::TransformBroadcaster> mTfBr;
+
+  // Joint covariance export (see publish_joint_covariance)
+  rclcpp::Publisher<active_slam_msgs::msg::JointCovariance>::SharedPtr pub_joint_cov;
+  bool joint_cov_enabled = true;
+  bool joint_cov_include_features = true;
+  bool joint_cov_include_calib = true;
+  double joint_cov_rate = 5.0;
+  double last_joint_cov_time = -1.0;
 
   // Our subscribers and camera synchronizers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;

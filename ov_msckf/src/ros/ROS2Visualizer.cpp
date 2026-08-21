@@ -27,6 +27,8 @@
 #include "state/Propagator.h"
 #include "state/State.h"
 #include "state/StateHelper.h"
+#include "types/Landmark.h"
+#include "types/LandmarkRepresentation.h"
 #include "utils/dataset_reader.h"
 #include "utils/print.h"
 #include "utils/sensor_data.h"
@@ -47,6 +49,17 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   // Setup pose and path publisher
   pub_poseimu = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("poseimu", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_poseimu->get_topic_name());
+  pub_joint_cov = node->create_publisher<active_slam_msgs::msg::JointCovariance>("/openvins/joint_covariance", 2);
+  PRINT_DEBUG("Publishing: %s\n", pub_joint_cov->get_topic_name());
+  node->declare_parameter<bool>("joint_cov_enabled", joint_cov_enabled);
+  node->get_parameter<bool>("joint_cov_enabled", joint_cov_enabled);
+  node->declare_parameter<double>("joint_cov_rate", joint_cov_rate);
+  node->get_parameter<double>("joint_cov_rate", joint_cov_rate);
+  node->declare_parameter<bool>("joint_cov_include_features", joint_cov_include_features);
+  node->get_parameter<bool>("joint_cov_include_features", joint_cov_include_features);
+  node->declare_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
+  node->get_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
+
   pub_odomimu = node->create_publisher<nav_msgs::msg::Odometry>("odomimu", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_odomimu->get_topic_name());
   pub_pathimu = node->create_publisher<nav_msgs::msg::Path>("pathimu", 2);
@@ -245,6 +258,9 @@ void ROS2Visualizer::visualize() {
 
   // publish state
   publish_state();
+
+  // publish joint covariance for the active-SLAM planner
+  publish_joint_covariance();
 
   // publish points
   publish_features();
@@ -996,4 +1012,160 @@ void ROS2Visualizer::publish_loopclosure_information() {
     sensor_msgs::msg::Image::SharedPtr exl_msg2 = cv_bridge::CvImage(header, "bgr8", depthmap_viz).toImageMsg();
     it_pub_loop_img_depth_color.publish(exl_msg2);
   }
+}
+
+
+void ROS2Visualizer::publish_joint_covariance() {
+
+  // ==========================================================================
+  // JOINT state covariance export for Fisher-information-based planning.
+  //
+  // Stock OpenVINS publishes only the 6x6 MARGINAL pose covariance (on
+  // /odomimu, via get_marginal_covariance on just the pose). A planner that
+  // reasons about pose+map uncertainty needs the JOINT block, including the
+  // IMU <-> SLAM-feature cross-covariance.
+  //
+  // StateHelper::get_marginal_covariance() is -- despite the name -- exactly
+  // the right tool. It does NOT Schur-complement anything. It copies
+  //     _Cov.block(vars[i]->id(), vars[k]->id(), size_i, size_k)
+  // for every (i,k) pair, i.e. the joint sub-block WITH all cross terms.
+  // (For a Gaussian, that sub-block IS the marginal over those variables.)
+  //
+  // We must go through StateHelper because State::_Cov and State::_variables
+  // are private (friend class StateHelper). All the Type pointers we need are
+  // public, and Type::id()/size() are public, so no core change is required.
+  //
+  // NOTE ON ORDERING: OpenVINS re-indexes its covariance whenever a clone or
+  // feature is marginalized -- ids shift and the matrix shrinks. That is why
+  // every block's offset is republished as metadata every message and must
+  // never be cached downstream.
+  // ==========================================================================
+
+  if (!joint_cov_enabled || pub_joint_cov == nullptr)
+    return;
+
+  std::shared_ptr<State> state = _app->get_state();
+  if (state == nullptr)
+    return;
+
+  // Throttle. With max_clones=11 and max_slam=50 this matrix reaches ~232x232;
+  // serializing ~54k doubles at the full update rate is pure waste.
+  if (joint_cov_rate > 0.0 && last_joint_cov_time > 0.0 &&
+      (state->_timestamp - last_joint_cov_time) < (1.0 / joint_cov_rate)) {
+    return;
+  }
+  last_joint_cov_time = state->_timestamp;
+
+  // ---- assemble the variable list; this order defines the block order ----
+  std::vector<std::shared_ptr<ov_type::Type>> vars;
+  active_slam_msgs::msg::JointCovariance msg;
+
+  auto add_block = [&](const std::shared_ptr<ov_type::Type> &var, const std::string &type, int camera_id,
+                       double clone_stamp, long long feature_id, const std::string &param, bool anchored,
+                       int anchor_cam, double anchor_stamp) {
+    if (var == nullptr || var->id() < 0)
+      return; // not actually in the covariance
+    active_slam_msgs::msg::StateBlock b;
+    b.type = type;
+    b.index = 0; // filled in below once the full ordering is known
+    b.size = var->size();
+    b.state_id = var->id();
+    b.camera_id = camera_id;
+    b.clone_timestamp = clone_stamp;
+    b.feature_id = feature_id;
+    b.parameterization = param;
+    b.is_anchored = anchored;
+    b.anchor_camera_id = anchor_cam;
+    b.anchor_clone_timestamp = anchor_stamp;
+    msg.blocks.push_back(b);
+    vars.push_back(var);
+  };
+
+  // 1) IMU: 15x15 (JPL quat, pos, vel, bg, ba). Always id()==0.
+  add_block(state->_imu, "imu", -1, -1.0, -1, "", false, -1, -1.0);
+  msg.includes_imu = true;
+
+  // 2) Calibration states that are actually being estimated.
+  if (joint_cov_include_calib) {
+    if (state->_options.do_calib_camera_timeoffset)
+      add_block(state->_calib_dt_CAMtoIMU, "calib_dt", -1, -1.0, -1, "", false, -1, -1.0);
+    if (state->_options.do_calib_camera_pose) {
+      for (const auto &c : state->_calib_IMUtoCAM)
+        add_block(c.second, "cam_extrinsics", (int)c.first, -1.0, -1, "", false, -1, -1.0);
+    }
+    if (state->_options.do_calib_camera_intrinsics) {
+      for (const auto &c : state->_cam_intrinsics)
+        add_block(c.second, "cam_intrinsics", (int)c.first, -1.0, -1, "", false, -1, -1.0);
+    }
+    if (state->_options.do_calib_imu_intrinsics) {
+      add_block(state->_calib_imu_dw, "imu_intrinsics", -1, -1.0, -1, "dw", false, -1, -1.0);
+      add_block(state->_calib_imu_da, "imu_intrinsics", -1, -1.0, -1, "da", false, -1, -1.0);
+      if (state->_options.do_calib_imu_g_sensitivity)
+        add_block(state->_calib_imu_tg, "imu_intrinsics", -1, -1.0, -1, "tg", false, -1, -1.0);
+    }
+    msg.includes_calibration = true;
+  }
+
+  // 3) Sliding-window clones. std::map is ordered by timestamp, so these come
+  //    out oldest-first, which is the stable ordering a consumer expects.
+  for (const auto &clone : state->_clones_IMU)
+    add_block(clone.second, "clone", -1, clone.first, -1, "", false, -1, -1.0);
+  msg.includes_clones = true;
+  msg.num_clones = (int)state->_clones_IMU.size();
+
+  // 4) SLAM features.
+  //
+  //    !! PARAMETERIZATION MATTERS !! With feat_rep_slam ANCHORED_*, these
+  //    3-vectors are NOT global XYZ -- they are relative to the anchor clone
+  //    named in the block metadata. Turning this into metric world-frame
+  //    uncertainty requires propagating through the anchored->XYZ Jacobian,
+  //    which itself depends on the anchor clone pose. The anchor clone's block
+  //    and its cross-terms ARE in this same matrix, so a consumer can do it
+  //    from one message -- we deliberately do not do it here, because the
+  //    linearization choice belongs to the planner.
+  int n_feats = 0;
+  if (joint_cov_include_features) {
+    for (const auto &feat : state->_features_SLAM) {
+      std::shared_ptr<ov_type::Landmark> lm = feat.second;
+      if (lm == nullptr || lm->id() < 0)
+        continue;
+      std::string rep = ov_type::LandmarkRepresentation::as_string(lm->_feat_representation);
+      bool anchored = ov_type::LandmarkRepresentation::is_relative_representation(lm->_feat_representation);
+      add_block(lm, "slam_feature", lm->_unique_camera_id, -1.0, (long long)lm->_featid, rep, anchored,
+                lm->_anchor_cam_id, lm->_anchor_clone_timestamp);
+      n_feats++;
+    }
+    msg.includes_slam_features = true;
+  }
+  msg.num_slam_features = n_feats;
+
+  if (vars.empty())
+    return;
+
+  // ---- fill in each block's offset within THIS message's matrix ----
+  int running = 0;
+  for (auto &b : msg.blocks) {
+    b.index = running;
+    running += b.size;
+  }
+
+  // ---- pull the joint covariance (all cross terms retained) ----
+  Eigen::MatrixXd cov = StateHelper::get_marginal_covariance(state, vars);
+  if (cov.rows() != running) {
+    PRINT_WARNING(YELLOW "[joint-cov]: size mismatch %d vs %d, skipping\n" RESET, (int)cov.rows(), running);
+    return;
+  }
+
+  msg.header.stamp = ROSVisualizerHelper::get_time_from_seconds(state->_timestamp);
+  msg.header.frame_id = "global";
+  msg.dim = (int)cov.rows();
+  msg.full_state_dim = state->max_covariance_size();
+  msg.covariance.resize((size_t)cov.rows() * (size_t)cov.cols());
+  for (int r = 0; r < cov.rows(); r++) {
+    for (int c = 0; c < cov.cols(); c++) {
+      msg.covariance[(size_t)r * (size_t)cov.cols() + (size_t)c] = cov(r, c);
+    }
+  }
+
+  pub_joint_cov->publish(msg);
 }
