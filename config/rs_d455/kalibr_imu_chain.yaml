@@ -6,22 +6,41 @@ imu0:
     - [0.0, 1.0, 0.0, 0.0]
     - [0.0, 0.0, 1.0, 0.0]
     - [0.0, 0.0, 0.0, 1.0]
-  # Values from allan plots
-  # https://github.com/rpng/ar_table_dataset
-  #accelerometer_noise_density: 0.0010382453726199955
-  #accelerometer_random_walk: 4.132785219723178e-05
-  #gyroscope_noise_density: 0.00010272083263292572
-  #gyroscope_random_walk: 1.1106223553679963e-06
-  # Inflated values (to account for unmodelled effects)
-  #  - white noise multiplied by 2
-  #  - bias random walk multiplied by 10
+
+  # =========================================================================
+  # !! OUTSTANDING: THESE NOISE VALUES ARE **NOT** CHARACTERIZED FOR THIS D455 !!
+  #
+  # The Kalibr imu-camera run delivered on 2026-08-21 did NOT produce these.
+  # kalibr_calibrate_imu_camera does not estimate noise densities - it only
+  # consumes them from the imu.yaml you hand it, and echoes them back out
+  # unchanged. The imu.yaml used for that run carried the values below, so they
+  # made a full round trip and came back looking "calibrated" when they are not.
+  #
+  # They are still the borrowed rpng/ar_table_dataset values:
+  #   https://github.com/rpng/ar_table_dataset
+  #   base (that dataset's allan plots):
+  #     accelerometer_noise_density: 0.0010382453726199955
+  #     accelerometer_random_walk:   4.132785219723178e-05
+  #     gyroscope_noise_density:     0.00010272083263292572
+  #     gyroscope_random_walk:       1.1106223553679963e-06
+  #   inflated (white noise x2, bias random walk x10) -> the values below.
+  #
+  # TODO: run a real Allan-variance characterization on THIS D455's /camera/imu
+  # (imu_utils or allan_variance_ros, >= 3 h stationary logging) and replace the
+  # four values below. Until then treat filter consistency as unvalidated.
+  # =========================================================================
   accelerometer_noise_density: 0.00207649074
   accelerometer_random_walk: 0.00041327852
   gyroscope_noise_density: 0.00020544166
   gyroscope_random_walk: 0.00001110622
+
   rostopic: /camera/imu
   time_offset: 0.0
-  update_rate: 400
+  # United IMU (realsense2_camera unite_imu_method:=2, linear_interpolation) is
+  # emitted at the gyro rate. D455 gyro default profile is 200 Hz (400 Hz is the
+  # opt-in alternative), and the Kalibr run above was performed at 200 Hz.
+  # Informational only: OpenVINS does not read update_rate at runtime.
+  update_rate: 200
   # three different modes supported:
   # "calibrated" (same as "kalibr"), "kalibr", "rpng"
   model: "kalibr"
@@ -31,6 +50,9 @@ imu0:
   #   - Ta is imu0:accelerometers:M:
   #   - R_IMUtoACC not used by Kalibr
   #   - Tg is imu0:gyroscopes:A:
+  # Left as identity/zero: the imu-camera run does not estimate IMU intrinsics
+  # (that needs kalibr_calibrate_imu_intrinsics), and estimator_config.yaml has
+  # calib_imu_intrinsics=false / calib_imu_g_sensitivity=false so they are unused.
   Tw:
     - [ 1.0, 0.0, 0.0 ]
     - [ 0.0, 1.0, 0.0 ]

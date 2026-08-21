@@ -2,49 +2,62 @@
 
 
 # =============================================================================
-# D455 IR STEREO PAIR - REAL calibration captured live from the camera.
-#   source: /camera/infraN/camera_info (intrinsics, distortion) + /camera/extrinsics/* (extrinsics)
+# D455 IR STEREO PAIR + IMU - REAL Kalibr imu-camera calibration.
+#   source: kalibr_calibrate_imu_camera (aprilgrid 6x6, tagSize 0.09023 m,
+#           tagSpacing 0.29926) over the live D455 IR pair + united IMU.
 #   emitter OFF (depth_module.emitter_enabled=0) so IR imagers see the natural scene.
 #   cam0 = infra1 (left, == depth reference frame) ; cam1 = infra2 (right)
-#   measured baseline = 95.03 mm (nominal D455 IR = 95 mm)
-#   IMU frame = camera_gyro_optical_frame (united IMU published on /camera/imu)
-# Intrinsics are factory-rectified: identical L/R, zero distortion. Extrinsic rotation is
-# identity for both (D455 IMU/imager axes coincide). For metric-grade results run a Kalibr
-# imu-cam calibration and replace the intrinsics/T_cam_imu; these factory values are a solid start.
+#   measured baseline = 95.16 mm (nominal D455 IR = 95 mm, prior factory value 95.03 mm)
+#   IMU frame = camera_gyro_optical_frame (united IMU published on /camera/imu,
+#           realsense2_camera unite_imu_method:=2)
+#
+# This REPLACES the earlier factory approximation, which used identity rotation for
+# T_cam_imu, zero distortion, and timeshift_cam_imu = 0.0. Rotations here are the real
+# measured ones (0.37 deg / 0.29 deg off identity - small, as expected for the D455
+# where the IMU and imager axes are nominally aligned, but no longer exactly identity).
+# The substantive changes vs factory are the ~4.7 ms camera-IMU time offset and the
+# ~5 mm correction to the IMU->camera translation (mostly in z).
+#
+# NOTE: T_cam_imu is the Kalibr convention: it maps a point from the IMU frame into
+# the camera frame. timeshift_cam_imu follows Kalibr/OpenVINS convention
+# t_imu = t_cam + timeshift_cam_imu.
 # =============================================================================
 
 cam0:
-  # T_cam_imu (kalibr convention, maps IMU->cam). Identity rotation: D455 IMU is axis-aligned
-  # with the imagers (driver reports identity depth->gyro rotation). Translation = gyro/IMU
-  # origin expressed in this camera's optical frame.
+  # T_cam_imu (kalibr convention, maps IMU->cam), from kalibr_calibrate_imu_camera.
   T_cam_imu:
-    - [1.0, 0.0, 0.0, 0.030220000073313713]
-    - [0.0, 1.0, 0.0, -0.007400000002235174]
-    - [0.0, 0.0, 1.0, -0.016019999980926514]
+    - [0.999986285363291, -0.002200677183295135, -0.004752484114757404, 0.030851041750700355]
+    - [0.0021832916225860153, 0.9999909176804016, -0.0036602997689197756, -0.006169183522144006]
+    - [0.004760496089363271, 0.003649873510483977, 0.9999820078883119, -0.020678363945062037]
     - [0.0, 0.0, 0.0, 1.0]
   cam_overlaps: [1]
   camera_model: pinhole
-  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_coeffs: [0.0013952136349113062, -0.0019027411612413025, -5.658246219811064e-05, -0.00011197131124795797]
   distortion_model: radtan
-  intrinsics: [430.1234436, 430.1234436, 428.63626099, 244.06790161]
+  intrinsics: [429.8542531686659, 429.74700214971466, 427.1791422717979, 244.18026315841914]
   resolution: [848, 480]
   rostopic: /camera/infra1/image_rect_raw
-  timeshift_cam_imu: 0.0
+  timeshift_cam_imu: 0.004659614398664684
 
 cam1:
-  # T_cam_imu (kalibr convention, maps IMU->cam). Identity rotation: D455 IMU is axis-aligned
-  # with the imagers (driver reports identity depth->gyro rotation). Translation = gyro/IMU
-  # origin expressed in this camera's optical frame.
+  # T_cam_imu (kalibr convention, maps IMU->cam), from kalibr_calibrate_imu_camera.
   T_cam_imu:
-    - [1.0, 0.0, 0.0, -0.06480865366756916]
-    - [0.0, 1.0, 0.0, -0.007400000002235174]
-    - [0.0, 0.0, 1.0, -0.016019999980926514]
+    - [0.9999939635980986, -0.002170041650324296, -0.002713611357694104, -0.06435440007692811]
+    - [0.002159903677132528, 0.9999906984610789, -0.0037333373044876883, -0.006360070245927937]
+    - [0.002721687614377891, 0.003727453629413493, 0.9999893491962654, -0.020923210398673814]
+    - [0.0, 0.0, 0.0, 1.0]
+  # cam1 relative to cam0 (Kalibr T_cn_cnm1). Not read by OpenVINS - kept for provenance.
+  # Translation norm = 95.163 mm = the stereo baseline.
+  T_cn_cnm1:
+    - [0.9999979210001929, 2.318913307333318e-05, 0.002038984441463978, -0.09516307176794211]
+    - [-2.3040032537783072e-05, 0.9999999970592355, -7.31483598140838e-05, -0.00019168852132649567]
+    - [-0.002038986131714858, 7.310122947078262e-05, 0.9999979185937146, -0.00018153367250949357]
     - [0.0, 0.0, 0.0, 1.0]
   cam_overlaps: [0]
   camera_model: pinhole
-  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_coeffs: [0.002511995383354466, -0.0028617460976013585, 0.0001527334043616558, -0.0006744422433122284]
   distortion_model: radtan
-  intrinsics: [430.1234436, 430.1234436, 428.63626099, 244.06790161]
+  intrinsics: [429.26496979451036, 429.3075289397776, 427.1233158451346, 244.294433215676]
   resolution: [848, 480]
   rostopic: /camera/infra2/image_rect_raw
-  timeshift_cam_imu: 0.0
+  timeshift_cam_imu: 0.004657036980059434
