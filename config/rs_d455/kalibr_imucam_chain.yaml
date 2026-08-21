@@ -1,19 +1,50 @@
 %YAML:1.0
 
 
+# =============================================================================
+# D455 IR STEREO PAIR - REAL calibration captured live from the camera.
+#   source: /camera/infraN/camera_info (intrinsics, distortion) + /camera/extrinsics/* (extrinsics)
+#   emitter OFF (depth_module.emitter_enabled=0) so IR imagers see the natural scene.
+#   cam0 = infra1 (left, == depth reference frame) ; cam1 = infra2 (right)
+#   measured baseline = 95.03 mm (nominal D455 IR = 95 mm)
+#   IMU frame = camera_gyro_optical_frame (united IMU published on /camera/imu)
+# Intrinsics are factory-rectified: identical L/R, zero distortion. Extrinsic rotation is
+# identity for both (D455 IMU/imager axes coincide). For metric-grade results run a Kalibr
+# imu-cam calibration and replace the intrinsics/T_cam_imu; these factory values are a solid start.
+# =============================================================================
+
 cam0:
+  # T_cam_imu (kalibr convention, maps IMU->cam). Identity rotation: D455 IMU is axis-aligned
+  # with the imagers (driver reports identity depth->gyro rotation). Translation = gyro/IMU
+  # origin expressed in this camera's optical frame.
   T_cam_imu:
-    - [0.9999654398038452, 0.007342326779113337, -0.003899927610975742, -0.027534314618518095]
-    - [-0.0073452195116216765, 0.9999727585590525, -0.0007279355223411334, -0.0030587146933711722]
-    - [0.0038944766308488753, 0.0007565561891287445, 0.9999921303062861, -0.023605118842939803]
+    - [1.0, 0.0, 0.0, 0.030220000073313713]
+    - [0.0, 1.0, 0.0, -0.007400000002235174]
+    - [0.0, 0.0, 1.0, -0.016019999980926514]
     - [0.0, 0.0, 0.0, 1.0]
-  cam_overlaps: []
+  cam_overlaps: [1]
   camera_model: pinhole
-  distortion_coeffs: [-0.045761895748285604, 0.03423951132164367, -0.00040139057556727315, 0.000431371425853453]
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
   distortion_model: radtan
-  intrinsics: [416.85223429743274, 414.92069080087543, 421.02459311003213, 237.76180565241077]
+  intrinsics: [430.1234436, 430.1234436, 428.63626099, 244.06790161]
   resolution: [848, 480]
-  rostopic: /d455/color/image_raw
-  timeshift_cam_imu: 0.002524377913673846
+  rostopic: /camera/infra1/image_rect_raw
+  timeshift_cam_imu: 0.0
 
-
+cam1:
+  # T_cam_imu (kalibr convention, maps IMU->cam). Identity rotation: D455 IMU is axis-aligned
+  # with the imagers (driver reports identity depth->gyro rotation). Translation = gyro/IMU
+  # origin expressed in this camera's optical frame.
+  T_cam_imu:
+    - [1.0, 0.0, 0.0, -0.06480865366756916]
+    - [0.0, 1.0, 0.0, -0.007400000002235174]
+    - [0.0, 0.0, 1.0, -0.016019999980926514]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [430.1234436, 430.1234436, 428.63626099, 244.06790161]
+  resolution: [848, 480]
+  rostopic: /camera/infra2/image_rect_raw
+  timeshift_cam_imu: 0.0
