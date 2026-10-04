@@ -102,6 +102,11 @@ bool FeatureInitializer::single_triangulation(std::shared_ptr<Feature> feat,
   // Then set the flag for bad (i.e. set z-axis to nan)
   if (std::abs(condA) > _options.max_cond_number || p_f(2, 0) < _options.min_dist || p_f(2, 0) > _options.max_dist ||
       std::isnan(p_f.norm())) {
+    // [FI] lines are parsed by the phase-3 evaluation to measure scene degradation
+    // (which check rejects, and at what depth). Logging only; no behaviour change.
+    PRINT_DEBUG("[FI] reject=tri cond=%d near=%d far=%d nan=%d z=%.3f condA=%.1f\n", (int)(std::abs(condA) > _options.max_cond_number),
+                (int)(p_f(2, 0) < _options.min_dist), (int)(p_f(2, 0) > _options.max_dist), (int)std::isnan(p_f.norm()), p_f(2, 0),
+                std::abs(condA));
     return false;
   }
 
@@ -366,8 +371,12 @@ bool FeatureInitializer::single_gaussnewton(std::shared_ptr<Feature> feat,
   // 3. If the baseline ratio is large
   if (feat->p_FinA(2) < _options.min_dist || feat->p_FinA(2) > _options.max_dist ||
       (feat->p_FinA.norm() / base_line_max) > _options.max_baseline || std::isnan(feat->p_FinA.norm())) {
+    PRINT_DEBUG("[FI] reject=refine near=%d far=%d baseline=%d nan=%d z=%.3f ratio=%.1f\n", (int)(feat->p_FinA(2) < _options.min_dist),
+                (int)(feat->p_FinA(2) > _options.max_dist), (int)((feat->p_FinA.norm() / base_line_max) > _options.max_baseline),
+                (int)std::isnan(feat->p_FinA.norm()), feat->p_FinA(2), feat->p_FinA.norm() / base_line_max);
     return false;
   }
+  PRINT_DEBUG("[FI] ok z=%.3f ratio=%.1f\n", feat->p_FinA(2), feat->p_FinA.norm() / base_line_max);
 
   // Finally get position in global frame
   feat->p_FinG = R_GtoA.transpose() * feat->p_FinA + p_AinG;

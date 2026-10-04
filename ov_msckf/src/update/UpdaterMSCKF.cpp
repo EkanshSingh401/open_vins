@@ -86,6 +86,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Remove if we don't have enough
     if (ct_meas < 2) {
+      PRINT_DEBUG("[MSCKF] reject=%s\n", "fewmeas");
       (*it0)->to_delete = true;
       it0 = feature_vec.erase(it0);
     } else {
@@ -134,6 +135,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Remove the feature if not a success
     if (!success_tri || !success_refine) {
+      PRINT_DEBUG("[MSCKF] reject=%s\n", (!success_tri ? "triangulation" : "refine"));
       (*it1)->to_delete = true;
       it1 = feature_vec.erase(it1);
       continue;
@@ -223,6 +225,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state, std::vector<std::shared_
 
     // Check if we should delete or not
     if (chi2 > _options.chi2_multipler * chi2_check) {
+      PRINT_DEBUG("[MSCKF] reject=%s\n", "chi2");
       (*it2)->to_delete = true;
       it2 = feature_vec.erase(it2);
       // PRINT_DEBUG("featid = %d\n", feat.featid);

@@ -279,6 +279,24 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
 
   // Perform our feature tracking!
   trackFEATS->feed_new_camera(message);
+  if (ov_core::Printer::current_print_level <= ov_core::Printer::PrintLevel::DEBUG) {
+    // [TRACK] / [GRID] lines: features tracked per camera and cam0 features per
+    // extraction-grid cell, for the phase-3 scene-degradation measurements.
+    auto lo = trackFEATS->get_last_obs();
+    PRINT_DEBUG("[TRACK] cam0=%zu cam1=%zu\n", lo[0].size(), lo[1].size());
+    if (!message.images.empty() && params.grid_x > 0 && params.grid_y > 0) {
+      std::vector<int> cells(params.grid_x * params.grid_y, 0);
+      for (const auto &kp : lo[0]) {
+        int cx = std::min(params.grid_x - 1, std::max(0, (int)(kp.pt.x * params.grid_x / message.images.at(0).cols)));
+        int cy = std::min(params.grid_y - 1, std::max(0, (int)(kp.pt.y * params.grid_y / message.images.at(0).rows)));
+        cells.at(cy * params.grid_x + cx)++;
+      }
+      std::stringstream ss;
+      for (int c : cells)
+        ss << " " << c;
+      PRINT_DEBUG("[GRID] %dx%d%s\n", params.grid_x, params.grid_y, ss.str().c_str());
+    }
+  }
 
   // If the aruco tracker is available, the also pass to it
   // NOTE: binocular tracking for aruco doesn't make sense as we by default have the ids
@@ -495,6 +513,8 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   }
 
   // Concatenate our MSCKF feature arrays (i.e., ones not being used for slam updates)
+  PRINT_DEBUG("[MSCKF] cand lost=%zu marg=%zu maxtracks=%zu slam_in_state=%zu\n", feats_lost.size(), feats_marg.size(),
+              feats_maxtracks.size(), state->_features_SLAM.size());
   std::vector<std::shared_ptr<Feature>> featsup_MSCKF = feats_lost;
   featsup_MSCKF.insert(featsup_MSCKF.end(), feats_marg.begin(), feats_marg.end());
   featsup_MSCKF.insert(featsup_MSCKF.end(), feats_maxtracks.begin(), feats_maxtracks.end());
@@ -522,7 +542,9 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
   // NOTE: this should only really be used if you want to track a lot of features, or have limited computational resources
   if ((int)featsup_MSCKF.size() > state->_options.max_msckf_in_update)
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
+  size_t msckf_in = featsup_MSCKF.size();
   updaterMSCKF->update(state, featsup_MSCKF);
+  PRINT_DEBUG("[MSCKF] in=%zu used=%zu\n", msckf_in, featsup_MSCKF.size());
   propagator->invalidate_cache();
   rT4 = boost::posix_time::microsec_clock::local_time();
 
