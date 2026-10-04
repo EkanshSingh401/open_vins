@@ -17,6 +17,11 @@ find_package(ov_init REQUIRED)
 # active-SLAM planner; ov_msckf must stay buildable without it so that a
 # broken/absent active_slam_msgs cannot take down a working VIO build.
 find_package(active_slam_msgs QUIET)
+# OPTIONAL as well: rosbag2 is only needed by ros2_serial_msckf, the offline
+# evaluation runner. The live node (run_subscribe_msckf) must build without it.
+find_package(rosbag2_cpp QUIET)
+find_package(rosbag2_compression QUIET)
+find_package(rosbag2_storage QUIET)
 
 # Describe ROS project
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
@@ -111,6 +116,22 @@ if (active_slam_msgs_FOUND)
 endif()
 target_link_libraries(run_subscribe_msckf ov_msckf_lib ${thirdparty_libraries})
 install(TARGETS run_subscribe_msckf DESTINATION lib/${PROJECT_NAME})
+
+# Deterministic offline evaluation: reads a rosbag2 bag directly and drives the
+# same ROS2Visualizer callbacks as run_subscribe_msckf on one thread.
+if (rosbag2_cpp_FOUND AND rosbag2_compression_FOUND AND rosbag2_storage_FOUND)
+    add_executable(ros2_serial_msckf src/ros2_serial_msckf.cpp)
+    ament_target_dependencies(ros2_serial_msckf ${ament_libraries} rosbag2_cpp rosbag2_compression rosbag2_storage)
+    if (active_slam_msgs_FOUND)
+        target_compile_definitions(ros2_serial_msckf PUBLIC OV_JOINT_COV_AVAILABLE)
+    endif()
+    target_link_libraries(ros2_serial_msckf ov_msckf_lib ${thirdparty_libraries})
+    install(TARGETS ros2_serial_msckf DESTINATION lib/${PROJECT_NAME})
+    message(STATUS "ov_msckf: rosbag2 FOUND -- ros2_serial_msckf ENABLED")
+else()
+    message(WARNING "ov_msckf: rosbag2_cpp/rosbag2_compression/rosbag2_storage NOT all found -- "
+            "ros2_serial_msckf (offline evaluation runner) DISABLED. The live node is unaffected.")
+endif()
 
 add_executable(run_simulation src/run_simulation.cpp)
 ament_target_dependencies(run_simulation ${ament_libraries})

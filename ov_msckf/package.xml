@@ -56,6 +56,10 @@
          NOTE: because there is no declared dependency, colcon does not
          guarantee build ordering. On a clean workspace build
          active_slam_msgs first (or simply build twice) to enable it. -->
+    <!-- rosbag2_cpp / rosbag2_compression / rosbag2_storage are likewise NOT
+         declared: they are needed only by ros2_serial_msckf (offline
+         evaluation) and are found QUIET, so a machine without them still
+         builds the live node. All three ship in ros-<distro>-ros-base. -->
 
     <!-- System dependencies for both versions -->
     <depend>eigen</depend>
