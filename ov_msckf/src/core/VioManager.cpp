@@ -313,6 +313,9 @@ void VioManager::track_image_and_update(const ov_core::CameraData &message_const
     // If the same state time, use the previous timestep decision
     if (state->_timestamp != message.timestamp) {
       did_zupt_update = updaterZUPT->try_update(state, message.timestamp);
+      // [ZUPTEV] line: image time of every ZUPT decision, so each one can be
+      // matched against ground-truth speed (phase 3, no behaviour change).
+      PRINT_INFO("[ZUPTEV] t=%.9f accepted=%d v=%.4f\n", message.timestamp, (int)did_zupt_update, state->_imu->vel().norm());
     }
     if (did_zupt_update) {
       assert(state->_timestamp == message.timestamp);
