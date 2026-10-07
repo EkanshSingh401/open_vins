@@ -66,6 +66,12 @@ struct InertialInitializerOptions {
   /// Variance threshold on our acceleration to be classified as moving
   double init_imu_thresh = 1.0;
 
+  /// Static init: wait for an IMU "jerk" before initializing? -1 = automatic
+  /// (stock: wait unless ZUPT is enabled), 1 = always wait, 0 = initialize at rest
+  /// right away. 0 is for closed-loop flight where PX4 flies on vision only and
+  /// needs a pose BEFORE takeoff (PATCHES s64).
+  int init_wait_for_jerk = -1;
+
   /// Max disparity we will consider the unit to be stationary
   double init_max_disparity = 1.0;
 
@@ -126,6 +132,7 @@ struct InertialInitializerOptions {
     if (parser != nullptr) {
       parser->parse_config("init_window_time", init_window_time);
       parser->parse_config("init_imu_thresh", init_imu_thresh);
+      parser->parse_config("init_wait_for_jerk", init_wait_for_jerk, false);
       parser->parse_config("init_max_disparity", init_max_disparity);
       parser->parse_config("init_max_features", init_max_features);
       parser->parse_config("init_dyn_use", init_dyn_use);
@@ -149,6 +156,7 @@ struct InertialInitializerOptions {
     }
     PRINT_DEBUG("  - init_window_time: %.2f\n", init_window_time);
     PRINT_DEBUG("  - init_imu_thresh: %.2f\n", init_imu_thresh);
+    PRINT_DEBUG("  - init_wait_for_jerk: %d\n", init_wait_for_jerk);
     PRINT_DEBUG("  - init_max_disparity: %.2f\n", init_max_disparity);
     PRINT_DEBUG("  - init_max_features: %.2f\n", init_max_features);
     if (init_max_features < 15) {
