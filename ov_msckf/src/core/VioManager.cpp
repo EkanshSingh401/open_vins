@@ -362,6 +362,8 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     propagator->propagate_and_clone(state, message.timestamp);
   }
   rT3 = boost::posix_time::microsec_clock::local_time();
+  if (stage_hook)
+    stage_hook("propagated");
 
   // If we have not reached max clones, we should just return...
   // This isn't super ideal, but it keeps the logic after this easier...
@@ -547,6 +549,8 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end() - state->_options.max_msckf_in_update);
   size_t msckf_in = featsup_MSCKF.size();
   updaterMSCKF->update(state, featsup_MSCKF);
+  if (stage_hook)
+    stage_hook("msckf");
   PRINT_DEBUG("[MSCKF] in=%zu used=%zu\n", msckf_in, featsup_MSCKF.size());
   propagator->invalidate_cache();
   rT4 = boost::posix_time::microsec_clock::local_time();
@@ -568,8 +572,12 @@ void VioManager::do_feature_propagate_update(const ov_core::CameraData &message)
     propagator->invalidate_cache();
   }
   feats_slam_UPDATE = feats_slam_UPDATE_TEMP;
+  if (stage_hook)
+    stage_hook("slam");
   rT5 = boost::posix_time::microsec_clock::local_time();
   updaterSLAM->delayed_init(state, feats_slam_DELAYED);
+  if (stage_hook)
+    stage_hook("init");
   rT6 = boost::posix_time::microsec_clock::local_time();
 
   //===================================================================================

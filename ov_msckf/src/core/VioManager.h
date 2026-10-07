@@ -29,6 +29,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <functional>
 #include <string>
 
 #include "VioManagerOptions.h"
@@ -62,6 +63,10 @@ class Propagator;
 class VioManager {
 
 public:
+  /// Optional diagnostic hook (PATCHES s62): called inside the update with the
+  /// stage just completed -- "propagated", "msckf", "slam", "init" -- so a
+  /// visualizer can snapshot the covariance between stages. Unset = no cost.
+  std::function<void(const std::string &)> stage_hook;
   /**
    * @brief Default constructor, will load all configuration variables
    * @param params_ Parameters loaded from either ROS or CMDLINE

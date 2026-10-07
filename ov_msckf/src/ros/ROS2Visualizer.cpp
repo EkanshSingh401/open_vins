@@ -68,6 +68,14 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   if (!node->has_parameter("joint_cov_include_calib"))
     node->declare_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
   node->get_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
+  if (!node->has_parameter("joint_cov_stages"))
+    node->declare_parameter<bool>("joint_cov_stages", joint_cov_stages);
+  node->get_parameter<bool>("joint_cov_stages", joint_cov_stages);
+  if (joint_cov_stages && _app != nullptr) {
+    // Diagnostic (PATCHES s62): snapshot between update stages, unthrottled.
+    _app->stage_hook = [this](const std::string &stage) { publish_joint_covariance(stage); };
+    PRINT_INFO("joint covariance: also publishing per update stage (joint_cov_stages)\n");
+  }
 
 #else
   PRINT_WARNING(YELLOW "joint covariance publisher NOT compiled in (active_slam_msgs was absent at build time)\n" RESET);
@@ -1032,7 +1040,7 @@ void ROS2Visualizer::publish_loopclosure_information() {
 
 #ifdef OV_JOINT_COV_AVAILABLE
 
-void ROS2Visualizer::publish_joint_covariance() {
+void ROS2Visualizer::publish_joint_covariance(const std::string &stage) {
 
   // ==========================================================================
   // JOINT state covariance export for Fisher-information-based planning.
@@ -1067,11 +1075,13 @@ void ROS2Visualizer::publish_joint_covariance() {
 
   // Throttle. With max_clones=11 and max_slam=50 this matrix reaches ~232x232;
   // serializing ~54k doubles at the full update rate is pure waste.
-  if (joint_cov_rate > 0.0 && last_joint_cov_time > 0.0 &&
+  const bool is_post = (stage == "post");
+  if (is_post && joint_cov_rate > 0.0 && last_joint_cov_time > 0.0 &&
       (state->_timestamp - last_joint_cov_time) < (1.0 / joint_cov_rate)) {
     return;
   }
-  last_joint_cov_time = state->_timestamp;
+  if (is_post)
+    last_joint_cov_time = state->_timestamp;
 
   // ---- assemble the variable list; this order defines the block order ----
   std::vector<std::shared_ptr<ov_type::Type>> vars;
@@ -1175,6 +1185,7 @@ void ROS2Visualizer::publish_joint_covariance() {
 
   msg.header.stamp = ROSVisualizerHelper::get_time_from_seconds(state->_timestamp);
   msg.header.frame_id = "global";
+  msg.stage = stage;
   msg.dim = (int)cov.rows();
   msg.full_state_dim = state->max_covariance_size();
   msg.covariance.resize((size_t)cov.rows() * (size_t)cov.cols());

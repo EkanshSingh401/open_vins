@@ -161,7 +161,7 @@ protected:
 
   /// Publish the JOINT state covariance (IMU + clones + SLAM features, with
   /// cross-covariance) for Fisher-information-based planning.
-  void publish_joint_covariance();
+  void publish_joint_covariance(const std::string &stage = "post");
 
   /// Global node handler
   std::shared_ptr<rclcpp::Node> _node;
@@ -190,6 +190,7 @@ protected:
   bool joint_cov_enabled = true;
   bool joint_cov_include_features = true;
   bool joint_cov_include_calib = true;
+  bool joint_cov_stages = false; // s62 diagnostic: also publish between update stages
   double joint_cov_rate = 5.0;
   double last_joint_cov_time = -1.0;
 

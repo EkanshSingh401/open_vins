@@ -285,11 +285,16 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
     std::shared_ptr<Landmark> landmark = state->_features_SLAM.at((*it0)->featid);
     int required_meas = (landmark->_feat_representation == LandmarkRepresentation::Representation::ANCHORED_INVERSE_DEPTH_SINGLE) ? 2 : 1;
 
+    // [SLAMEV] per-feature outcome of this SLAM update (PATCHES s62, DEBUG only):
+    //   t=<state time> id=<featid> n0=<cam0 meas> n1=<cam1 meas> outcome=<nomeas|fewmeas|chi2|used>
+    auto n_in = [&](size_t cam) { return (int)((*it0)->timestamps.count(cam) ? (*it0)->timestamps.at(cam).size() : 0); };
     // Remove if we don't have enough
     if (ct_meas < 1) {
+      PRINT_DEBUG("[SLAMEV] t=%.6f id=%zu n0=%d n1=%d outcome=nomeas\n", state->_timestamp, (*it0)->featid, n_in(0), n_in(1));
       (*it0)->to_delete = true;
       it0 = feature_vec.erase(it0);
     } else if (ct_meas < required_meas) {
+      PRINT_DEBUG("[SLAMEV] t=%.6f id=%zu n0=%d n1=%d outcome=fewmeas\n", state->_timestamp, (*it0)->featid, n_in(0), n_in(1));
       it0 = feature_vec.erase(it0);
     } else {
       it0++;
@@ -407,6 +412,11 @@ void UpdaterSLAM::update(std::shared_ptr<State> state, std::vector<std::shared_p
     // Check if we should delete or not
     double chi2_multipler =
         ((int)feat.featid < state->_options.max_aruco_features) ? _options_aruco.chi2_multipler : _options_slam.chi2_multipler;
+    {
+      auto n_in = [&](size_t cam) { return (int)(feat.timestamps.count(cam) ? feat.timestamps.at(cam).size() : 0); };
+      PRINT_DEBUG("[SLAMEV] t=%.6f id=%zu n0=%d n1=%d outcome=%s chi2=%.4f thr=%.4f\n", state->_timestamp, feat.featid, n_in(0),
+                  n_in(1), (chi2 > chi2_multipler * chi2_check) ? "chi2" : "used", chi2, chi2_multipler * chi2_check);
+    }
     if (chi2 > chi2_multipler * chi2_check) {
       if ((int)feat.featid < state->_options.max_aruco_features) {
         PRINT_WARNING(YELLOW "[SLAM-UP]: rejecting aruco tag %d for chi2 thresh (%.3f > %.3f)\n" RESET, (int)feat.featid, chi2,
