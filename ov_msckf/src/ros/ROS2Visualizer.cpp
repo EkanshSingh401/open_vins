@@ -29,6 +29,8 @@
 #include "state/StateHelper.h"
 #include "types/Landmark.h"
 #include "types/LandmarkRepresentation.h"
+#include "update/UpdaterHelper.h"
+#include "cam/CamEqui.h"
 #include "utils/dataset_reader.h"
 #include "utils/print.h"
 #include "utils/sensor_data.h"
@@ -1174,6 +1176,120 @@ void ROS2Visualizer::publish_joint_covariance() {
     for (int c = 0; c < cov.cols(); c++) {
       msg.covariance[(size_t)r * (size_t)cov.cols() + (size_t)c] = cov(r, c);
     }
+  }
+
+  // ---- linearization point (PATCHES s60) ----
+  // The means the covariance is about, taken in the same callback as the
+  // snapshot above so the two describe the same state. Landmark Jacobians come
+  // from OpenVINS's own UpdaterHelper::get_feature_jacobian_representation, so
+  // a consumer linearizes exactly where (and with the FEJ choice) OpenVINS does.
+  msg.state_uses_fej = state->_options.do_fej;
+  auto fill_pose = [](active_slam_msgs::msg::PoseLinearization &out, int id, double t, const Eigen::Vector4d &q,
+                      const Eigen::Vector3d &p, const Eigen::Vector4d &qf, const Eigen::Vector3d &pf) {
+    out.state_id = id;
+    out.timestamp = t;
+    for (int i = 0; i < 4; i++) {
+      out.q_gtoi[i] = q(i);
+      out.q_gtoi_fej[i] = qf(i);
+    }
+    for (int i = 0; i < 3; i++) {
+      out.p_iing[i] = p(i);
+      out.p_iing_fej[i] = pf(i);
+    }
+  };
+  fill_pose(msg.imu_pose, state->_imu->id(), state->_timestamp, state->_imu->quat(), state->_imu->pos(), state->_imu->quat_fej(),
+            state->_imu->pos_fej());
+  for (const auto &clone : state->_clones_IMU) {
+    if (clone.second == nullptr || clone.second->id() < 0)
+      continue;
+    active_slam_msgs::msg::PoseLinearization pl;
+    fill_pose(pl, clone.second->id(), clone.first, clone.second->quat(), clone.second->pos(), clone.second->quat_fej(),
+              clone.second->pos_fej());
+    msg.clone_poses.push_back(pl);
+  }
+  if (joint_cov_include_features) {
+    for (const auto &feat : state->_features_SLAM) {
+      std::shared_ptr<ov_type::Landmark> lm = feat.second;
+      if (lm == nullptr || lm->id() < 0)
+        continue;
+      UpdaterHelper::UpdaterHelperFeature uf;
+      uf.featid = lm->_featid;
+      uf.feat_representation = lm->_feat_representation;
+      const bool relative = ov_type::LandmarkRepresentation::is_relative_representation(lm->_feat_representation);
+      if (relative) {
+        // Anchored: get_xyz() is the position in the anchor CAMERA frame.
+        if (state->_clones_IMU.find(lm->_anchor_clone_timestamp) == state->_clones_IMU.end() ||
+            state->_calib_IMUtoCAM.find(lm->_anchor_cam_id) == state->_calib_IMUtoCAM.end())
+          continue; // anchor already marginalized: cannot linearize, skip (block stays in the matrix)
+        uf.anchor_cam_id = lm->_anchor_cam_id;
+        uf.anchor_clone_timestamp = lm->_anchor_clone_timestamp;
+        uf.p_FinA = lm->get_xyz(false);
+        uf.p_FinA_fej = lm->get_xyz(true);
+        auto anchor = state->_clones_IMU.at(lm->_anchor_clone_timestamp);
+        auto calib = state->_calib_IMUtoCAM.at(lm->_anchor_cam_id);
+        uf.p_FinG = anchor->Rot().transpose() * calib->Rot().transpose() * (uf.p_FinA - calib->pos()) + anchor->pos();
+        // For relative representations OpenVINS linearizes the MEASUREMENT at the
+        // current p_FinG (UpdaterHelper::get_feature_jacobian_full sets
+        // p_FinG_fej = p_FinG); only the representation Jacobian uses the FEJ
+        // anchor. Publish exactly that point.
+        uf.p_FinG_fej = uf.p_FinG;
+      } else {
+        uf.p_FinG = lm->get_xyz(false);
+        uf.p_FinG_fej = lm->get_xyz(true);
+      }
+      Eigen::MatrixXd H_f;
+      std::vector<Eigen::MatrixXd> H_x;
+      std::vector<std::shared_ptr<ov_type::Type>> x_order;
+      UpdaterHelper::get_feature_jacobian_representation(state, uf, H_f, H_x, x_order);
+      active_slam_msgs::msg::LandmarkLinearization ll;
+      ll.feature_id = (long long)lm->_featid;
+      ll.state_id = lm->id();
+      ll.representation = ov_type::LandmarkRepresentation::as_string(lm->_feat_representation);
+      ll.anchor_camera_id = relative ? lm->_anchor_cam_id : -1;
+      ll.anchor_clone_timestamp = relative ? lm->_anchor_clone_timestamp : -1.0;
+      Eigen::Vector3d rep = lm->value();
+      for (int i = 0; i < 3; i++) {
+        ll.p_fing[i] = uf.p_FinG(i);
+        ll.p_fing_fej[i] = uf.p_FinG_fej(i);
+        ll.rep_value[i] = rep(i);
+      }
+      for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+          ll.h_f[3 * r + c] = H_f(r, c);
+      int cols = 0;
+      for (size_t k = 0; k < x_order.size(); k++) {
+        ll.hx_state_ids.push_back(x_order[k]->id());
+        ll.hx_sizes.push_back(x_order[k]->size());
+        cols += x_order[k]->size();
+      }
+      ll.h_x.assign((size_t)3 * cols, 0.0);
+      int c0 = 0;
+      for (size_t k = 0; k < H_x.size(); k++) {
+        for (int r = 0; r < 3; r++)
+          for (int c = 0; c < H_x[k].cols(); c++)
+            ll.h_x[(size_t)r * cols + c0 + c] = H_x[k](r, c);
+        c0 += (int)H_x[k].cols();
+      }
+      msg.landmarks.push_back(ll);
+    }
+  }
+  for (const auto &cal : state->_calib_IMUtoCAM) {
+    active_slam_msgs::msg::CameraCalibration cc;
+    cc.camera_id = (int)cal.first;
+    auto cam = state->_cam_intrinsics_cameras.at(cal.first);
+    cc.model = (std::dynamic_pointer_cast<ov_core::CamEqui>(cam) != nullptr) ? "equidistant" : "radtan";
+    Eigen::Vector4d q = cal.second->quat();
+    Eigen::Vector3d p = cal.second->pos();
+    Eigen::VectorXd k = state->_cam_intrinsics.at(cal.first)->value();
+    for (int i = 0; i < 4; i++)
+      cc.q_itoc[i] = q(i);
+    for (int i = 0; i < 3; i++)
+      cc.p_iinc[i] = p(i);
+    for (int i = 0; i < 8; i++)
+      cc.intrinsics[i] = k(i);
+    cc.extrinsics_state_id = (state->_options.do_calib_camera_pose) ? cal.second->id() : -1;
+    cc.intrinsics_state_id = (state->_options.do_calib_camera_intrinsics) ? state->_cam_intrinsics.at(cal.first)->id() : -1;
+    msg.cameras.push_back(cc);
   }
 
   pub_joint_cov->publish(msg);
