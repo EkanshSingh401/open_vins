@@ -52,15 +52,21 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
   pub_poseimu = node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("poseimu", 2);
   PRINT_DEBUG("Publishing: %s\n", pub_poseimu->get_topic_name());
 #ifdef OV_JOINT_COV_AVAILABLE
-  pub_joint_cov = node->create_publisher<active_slam_msgs::msg::JointCovariance>("/openvins/joint_covariance", 2);
+  // depth 100: the serial runner publishes far faster than real time; with depth 2 a
+  // recorder dropped most messages at joint_cov_rate 0 (PATCHES s61)
+  pub_joint_cov = node->create_publisher<active_slam_msgs::msg::JointCovariance>("/openvins/joint_covariance", 100);
   PRINT_DEBUG("Publishing: %s\n", pub_joint_cov->get_topic_name());
-  node->declare_parameter<bool>("joint_cov_enabled", joint_cov_enabled);
+  if (!node->has_parameter("joint_cov_enabled"))
+    node->declare_parameter<bool>("joint_cov_enabled", joint_cov_enabled);
   node->get_parameter<bool>("joint_cov_enabled", joint_cov_enabled);
-  node->declare_parameter<double>("joint_cov_rate", joint_cov_rate);
+  if (!node->has_parameter("joint_cov_rate"))
+    node->declare_parameter<double>("joint_cov_rate", joint_cov_rate);
   node->get_parameter<double>("joint_cov_rate", joint_cov_rate);
-  node->declare_parameter<bool>("joint_cov_include_features", joint_cov_include_features);
+  if (!node->has_parameter("joint_cov_include_features"))
+    node->declare_parameter<bool>("joint_cov_include_features", joint_cov_include_features);
   node->get_parameter<bool>("joint_cov_include_features", joint_cov_include_features);
-  node->declare_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
+  if (!node->has_parameter("joint_cov_include_calib"))
+    node->declare_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
   node->get_parameter<bool>("joint_cov_include_calib", joint_cov_include_calib);
 
 #else
